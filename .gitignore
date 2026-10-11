@@ -11,3 +11,6 @@ target/
 /craft-fonts
 *.log
 __pycache__/
+
+# Local control-channel tokens (docs/development.md)
+.private/
