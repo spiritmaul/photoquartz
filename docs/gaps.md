@@ -164,6 +164,12 @@ what an agent can't finish alone.
   default small blur and the 36 MP saturated-field gain are inconclusive.
   [Method and full ranges](tilt-shift-performance.md). Native GUI latency remains
   unmeasured; no scorecard budget or parity percentage is changed by this work.
+- **Measured progress (2026-10-11):** Content-Aware Scale on 24 MP (P28) 3992 → ~1970 ms on a
+  4-core CPU-only VM, under its 3000 ms budget there: incremental seam search (bit-identical),
+  clearing by fill instead of read-modify-write, parallel seam application, and row-at-a-time
+  sample conversion in `read_region`/`write_region`.
+  [Method and breakdown](content-aware-scale-performance.md). The baseline is unchanged until
+  the reference machine re-runs `cargo xtask perf --update-baseline`.
 - **Missing:** 22 of 25 budgeted scenarios are over budget (baseline 2026-10-05, a heavily
   loaded machine): layer move with styles 321 ms p50 against 25 ms, opacity change 276 ms
   against 20 ms, paste 12 MP 1.2 s against 100 ms, layer move on 15000×10000 16-bit 2.7 s,

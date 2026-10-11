@@ -179,6 +179,14 @@ pub(crate) fn try_clear_surface(s: &mut Surface, area: Rect, selection: Option<&
     if !fmt.alpha {
         return Ok(());
     }
+    if selection.is_none() {
+        // Every pixel becomes the empty pixel (see `clear_region`): fill instead of reading and
+        // rewriting the area. Whole tiles share one solid tile, which `prune` then drops.
+        s.try_fill_rect(area, &vec![0.0; n])
+            .map_err(|e| crate::EngineError::Other(format!("not enough memory while erasing pixels ({e}); the document was not changed")))?;
+        s.prune();
+        return Ok(());
+    }
     let mut region = crate::allocation::read_region(s, area, "erasing pixels")?;
     clear_region(&mut region, n, area, selection);
     s.try_write_region(area, &region)

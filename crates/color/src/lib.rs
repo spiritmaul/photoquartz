@@ -137,6 +137,51 @@ pub fn write_sample(bytes: &mut [u8], sample: SampleType, index: usize, v: f32) 
     }
 }
 
+/// [`read_sample`] over a run: decodes `out.len()` consecutive samples from the start of `bytes`.
+/// The sample type is matched once per run instead of once per sample, so the loops vectorise;
+/// each value is bit-identical to [`read_sample`]. A short `bytes` decodes only what it holds.
+pub fn read_samples(bytes: &[u8], sample: SampleType, out: &mut [f32]) {
+    match sample {
+        SampleType::U8 => {
+            for (o, &b) in out.iter_mut().zip(bytes) {
+                *o = b as f32 / 255.0;
+            }
+        }
+        SampleType::U16 => {
+            for (o, b) in out.iter_mut().zip(bytes.chunks_exact(2)) {
+                *o = u16::from_ne_bytes([b[0], b[1]]) as f32 / 65535.0;
+            }
+        }
+        SampleType::F32 => {
+            for (o, b) in out.iter_mut().zip(bytes.chunks_exact(4)) {
+                *o = f32::from_ne_bytes([b[0], b[1], b[2], b[3]]);
+            }
+        }
+    }
+}
+
+/// [`write_sample`] over a run: encodes `src` into consecutive samples at the start of `bytes`,
+/// bit-identical to [`write_sample`] per value. A short `bytes` takes only what fits.
+pub fn write_samples(bytes: &mut [u8], sample: SampleType, src: &[f32]) {
+    match sample {
+        SampleType::U8 => {
+            for (b, &v) in bytes.iter_mut().zip(src) {
+                *b = (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+            }
+        }
+        SampleType::U16 => {
+            for (b, &v) in bytes.chunks_exact_mut(2).zip(src) {
+                b.copy_from_slice(&((v.clamp(0.0, 1.0) * 65535.0 + 0.5) as u16).to_ne_bytes());
+            }
+        }
+        SampleType::F32 => {
+            for (b, &v) in bytes.chunks_exact_mut(4).zip(src) {
+                b.copy_from_slice(&v.to_ne_bytes());
+            }
+        }
+    }
+}
+
 /// A colour value in the document's model with alpha, as normalised floats.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Color {
@@ -201,6 +246,29 @@ impl Color {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The run decoders give exactly what the per-sample ones give, including values outside
+    /// 0..1, NaN and infinities on the way in.
+    #[test]
+    fn sample_runs_match_single_samples() {
+        let vals: Vec<f32> = (0..300).map(|i| i as f32 / 257.0 - 0.1).chain([f32::NAN, f32::INFINITY, -f32::INFINITY, -0.0, 0.5, 1.0]).collect();
+        for sample in [SampleType::U8, SampleType::U16, SampleType::F32] {
+            let mut one = vec![0u8; vals.len() * sample.bytes()];
+            for (i, v) in vals.iter().enumerate() {
+                write_sample(&mut one, sample, i, *v);
+            }
+            let mut run = vec![0u8; one.len()];
+            write_samples(&mut run, sample, &vals);
+            assert_eq!(run, one, "{sample:?} encode");
+            let want: Vec<u32> = (0..vals.len()).map(|i| read_sample(&one, sample, i).to_bits()).collect();
+            let mut got = vec![0.0f32; vals.len()];
+            read_samples(&one, sample, &mut got);
+            assert_eq!(got.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), want, "{sample:?} decode");
+            // Short buffers convert only what they hold, without panicking.
+            read_samples(&one[..3], sample, &mut got);
+            write_samples(&mut run[..3], sample, &vals);
+        }
+    }
 
     #[test]
     fn colors_convert_into_a_document_mode() {

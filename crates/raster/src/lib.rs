@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
-use photocraft_color::{ColorMode, PixelFormat, SampleType, read_sample, write_sample};
+use photocraft_color::{ColorMode, PixelFormat, SampleType, read_sample, read_samples, write_sample, write_samples};
 use photocraft_geom::{Rect, TILE_SIZE, TileCoord};
 
 /// A checked surface allocation could not be represented or reserved.
@@ -204,12 +204,11 @@ impl Surface {
             let tr = tc.rect().intersect(&r);
             let t = self.try_tile_mut(tc)?;
             let span = tr.width() as usize * n;
+            let bytes = sample.bytes();
             for y in tr.y0..tr.y1 {
                 let src = (((y - r.y0) as usize) * r.width() as usize + (tr.x0 - r.x0) as usize) * n;
                 let dst = (((y - tc.ty * TILE_SIZE) as usize) * TILE_SIZE as usize + (tr.x0 - tc.tx * TILE_SIZE) as usize) * n;
-                for (i, v) in data[src..src + span].iter().enumerate() {
-                    write_sample(&mut t.data, sample, dst + i, *v);
-                }
+                write_samples(&mut t.data[dst * bytes..(dst + span) * bytes], sample, &data[src..src + span]);
             }
         }
         Ok(())
@@ -364,9 +363,8 @@ impl Surface {
                 match tile {
                     Some(t) => {
                         let base = (((y - tc.ty * TILE_SIZE) as usize) * TILE_SIZE as usize + (tr.x0 - tc.tx * TILE_SIZE) as usize) * n;
-                        for (i, d) in dst.iter_mut().enumerate() {
-                            *d = read_sample(&t.data, self.format.sample, base + i);
-                        }
+                        let bytes = self.format.sample.bytes();
+                        read_samples(&t.data[base * bytes..(base + span) * bytes], self.format.sample, dst);
                     }
                     None => {
                         for px in dst.chunks_exact_mut(n) {
@@ -490,28 +488,8 @@ impl Surface {
 
     /// Read a rectangle as interleaved normalised floats (`w*h*channels`).
     pub fn read_region(&self, r: Rect) -> Vec<f32> {
-        let n = self.channels();
-        let w = r.width() as usize;
-        let mut out = vec![0.0f32; w * r.height() as usize * n];
-        let dp = self.default_pixel();
-        for tc in r.tiles() {
-            let tr = tc.rect().intersect(&r);
-            let tile = self.tiles.get(&tc);
-            for y in tr.y0..tr.y1 {
-                for x in tr.x0..tr.x1 {
-                    let o = (((y - r.y0) as usize) * w + (x - r.x0) as usize) * n;
-                    match tile {
-                        Some(t) => {
-                            let base = (((y - tc.ty * TILE_SIZE) as usize) * TILE_SIZE as usize + (x - tc.tx * TILE_SIZE) as usize) * n;
-                            for i in 0..n {
-                                out[o + i] = read_sample(&t.data, self.format.sample, base + i);
-                            }
-                        }
-                        None => out[o..o + n].copy_from_slice(&dp),
-                    }
-                }
-            }
-        }
+        let mut out = Vec::new();
+        self.read_region_into(r, &mut out);
         out
     }
 
@@ -524,14 +502,12 @@ impl Surface {
         for tc in r.tiles() {
             let tr = tc.rect().intersect(&r);
             let t = self.tile_mut(tc);
+            let span = tr.width() as usize * n;
+            let bytes = sample.bytes();
             for y in tr.y0..tr.y1 {
-                for x in tr.x0..tr.x1 {
-                    let o = (((y - r.y0) as usize) * w + (x - r.x0) as usize) * n;
-                    let base = (((y - tc.ty * TILE_SIZE) as usize) * TILE_SIZE as usize + (x - tc.tx * TILE_SIZE) as usize) * n;
-                    for i in 0..n {
-                        write_sample(&mut t.data, sample, base + i, data[o + i]);
-                    }
-                }
+                let o = (((y - r.y0) as usize) * w + (tr.x0 - r.x0) as usize) * n;
+                let base = (((y - tc.ty * TILE_SIZE) as usize) * TILE_SIZE as usize + (tr.x0 - tc.tx * TILE_SIZE) as usize) * n;
+                write_samples(&mut t.data[base * bytes..(base + span) * bytes], sample, &data[o..o + span]);
             }
         }
     }
@@ -616,6 +592,39 @@ impl Surface {
                 }
             }
         }
+    }
+
+    /// Fallible counterpart to [`Surface::fill_rect`]: tile storage is reserved before each tile
+    /// changes, so running out of memory returns an error instead of aborting.
+    pub fn try_fill_rect(&mut self, r: Rect, px: &[f32]) -> Result<(), AllocationError> {
+        let n = self.channels();
+        let px = px.get(..n).ok_or(AllocationError::SizeOverflow)?;
+        let mut enc = vec![0u8; self.format.bytes_per_pixel()];
+        encode_pixel(&self.format, px, &mut enc);
+        let bpp = enc.len();
+        let mut full: Option<Arc<Tile>> = None;
+        for tc in r.tiles() {
+            let tr = tc.rect().intersect(&r);
+            if tr == tc.rect() {
+                let t = match &full {
+                    Some(t) => t.clone(),
+                    None => full.insert(Arc::new(Tile::try_filled(&self.format, &enc)?)).clone(),
+                };
+                self.tiles.insert(tc, t);
+                continue;
+            }
+            let t = self.try_tile_mut(tc)?;
+            for y in tr.y0..tr.y1 {
+                let ly = (y - tc.ty * TILE_SIZE) as usize;
+                let lx0 = (tr.x0 - tc.tx * TILE_SIZE) as usize;
+                let lx1 = (tr.x1 - tc.tx * TILE_SIZE) as usize;
+                let row = &mut t.data[(ly * TILE_SIZE as usize + lx0) * bpp..(ly * TILE_SIZE as usize + lx1) * bpp];
+                for p in row.chunks_exact_mut(bpp) {
+                    p.copy_from_slice(&enc);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Build from interleaved *encoded* bytes of `format` covering `r`.
@@ -870,6 +879,30 @@ mod tests {
     use super::*;
     use photocraft_color::PixelFormat;
     use proptest::prelude::*;
+
+    /// `try_fill_rect` matches `fill_rect`, tile for tile, over partial and whole tiles, an
+    /// existing tile and a tile shared with a snapshot (which must stay untouched).
+    #[test]
+    fn try_fill_rect_matches_fill_rect() {
+        for fmt in [PixelFormat::RGBA8, PixelFormat::new(ColorMode::Rgb, SampleType::U16, true), PixelFormat::new(ColorMode::Grayscale, SampleType::F32, false)]
+        {
+            let mut base = Surface::new(fmt);
+            base.fill_rect(Rect::new(10, 10, 300, 40), &[0.3, 0.6, 0.9, 1.0]);
+            let snapshot = base.clone();
+            let r = Rect::new(-20, 5, 700, 530);
+            let (mut a, mut b) = (base.clone(), base);
+            a.fill_rect(r, &[0.25, 0.5, 0.75, 0.0]);
+            b.try_fill_rect(r, &[0.25, 0.5, 0.75, 0.0]).unwrap();
+            assert!(a == b, "{fmt:?}");
+            assert_eq!(snapshot.read_region(Rect::new(10, 10, 300, 40)), {
+                let mut s = Surface::new(fmt);
+                s.fill_rect(Rect::new(10, 10, 300, 40), &[0.3, 0.6, 0.9, 1.0]);
+                s.read_region(Rect::new(10, 10, 300, 40))
+            });
+            // Too few channel values is an error, not a panic.
+            assert!(b.try_fill_rect(r, &[]).is_err());
+        }
+    }
 
     #[test]
     fn from_rgba_into_matches_from_rgba() {

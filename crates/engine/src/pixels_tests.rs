@@ -124,3 +124,30 @@ fn an_empty_layer_is_left_alone() {
     adjust_surface(&mut s, &Adjustment::Invert, None, ColorMode::Rgb);
     assert_eq!(s.tile_count(), 0);
 }
+
+/// Clearing without a selection fills instead of reading and rewriting the area; the pixels,
+/// tiles and bounds must be what the read-modify-write gives (#211).
+#[test]
+fn clearing_without_a_selection_matches_the_masked_clear() {
+    for fmt in [PixelFormat::RGBA8, PixelFormat::new(ColorMode::Rgb, SampleType::U16, true), PixelFormat::new(ColorMode::Cmyk, SampleType::F32, true)] {
+        let n = fmt.channels();
+        let mut s = Surface::new(fmt);
+        let px: Vec<f32> = (0..n).map(|c| 0.2 + c as f32 * 0.1).collect();
+        s.fill_rect(Rect::new(-30, 0, 700, 300), &px);
+        let snapshot = s.clone();
+        for area in [Rect::new(0, 0, 512, 256), Rect::new(17, 33, 600, 290), Rect::new(-100, -100, 1000, 1000)] {
+            let mut want = s.clone();
+            let mut region = want.read_region(area);
+            clear_region(&mut region, n, area, None);
+            want.write_region(area, &region);
+            want.prune();
+            let mut got = s.clone();
+            try_clear_surface(&mut got, area, None).unwrap();
+            let all = Rect::new(-40, -10, 720, 310);
+            assert_eq!(got.read_region(all), want.read_region(all), "{fmt:?} {area:?}");
+            assert_eq!(got.content_bounds(), want.content_bounds(), "{fmt:?} {area:?}");
+            assert_eq!(got.tile_count(), want.tile_count(), "{fmt:?} {area:?}");
+        }
+        assert!(snapshot == s, "the source surface is not touched");
+    }
+}

@@ -141,7 +141,15 @@ struct Carver {
     e: Vec<f32>,
     /// Original column of each pixel, when the caller needs to know which ones were removed.
     idx: Option<Vec<usize>>,
-    dp: Dp,
+    /// The seam search's cumulative cost and parent direction (as in [`Dp`]) for every pixel,
+    /// rows `stride` apart. Kept between seams: removing a seam changes them only in a cone
+    /// below the seam, so each search recomputes that cone instead of the whole map.
+    cost: Vec<f32>,
+    from: Vec<u8>,
+    /// Whether `cost` and `from` hold the full map yet (built on the first search).
+    dp_ready: bool,
+    /// The seam removed since the last search.
+    last: Option<Vec<usize>>,
 }
 
 impl Carver {
@@ -153,14 +161,100 @@ impl Carver {
             }
         }
         let idx = track.then(|| (0..h).flat_map(|_| 0..w).collect());
-        Carver { stride: w, cw: w, h, ch, img, prot, e, idx, dp: Dp::default() }
+        Carver { stride: w, cw: w, h, ch, img, prot, e, idx, cost: Vec::new(), from: Vec::new(), dp_ready: false, last: None }
+    }
+
+    /// Recompute the cost and parent of row `y` (`y >= 1`) for columns `a..=b`, exactly as
+    /// [`Dp::seam`] does (same comparisons, so the same ties). Returns the columns whose cost
+    /// changed, which are the only ones the next row can see.
+    fn dp_row(&mut self, y: usize, a: usize, b: usize) -> Option<(usize, usize)> {
+        let (stride, cw) = (self.stride, self.cw);
+        let (above, here) = self.cost.split_at_mut(y * stride);
+        let prev = &above[(y - 1) * stride..(y - 1) * stride + cw];
+        let cur = &mut here[..cw];
+        let from = &mut self.from[y * stride..y * stride + cw];
+        let e = &self.e[y * stride..y * stride + cw];
+        let mut changed: Option<(usize, usize)> = None;
+        for x in a..=b.min(cw - 1) {
+            let (best, d) = if cw == 1 {
+                (prev[0], 1)
+            } else if x == 0 {
+                if prev[1] < prev[0] { (prev[1], 2) } else { (prev[0], 1) }
+            } else if x == cw - 1 {
+                if prev[cw - 2] < prev[cw - 1] { (prev[cw - 2], 0) } else { (prev[cw - 1], 1) }
+            } else {
+                let (b, d) = if prev[x - 1] < prev[x] { (prev[x - 1], 0) } else { (prev[x], 1) };
+                if prev[x + 1] < b { (prev[x + 1], 2) } else { (b, d) }
+            };
+            let v = best + e[x];
+            if v.to_bits() != cur[x].to_bits() {
+                changed = Some(changed.map_or((x, x), |(lo, _)| (lo, x)));
+            }
+            (cur[x], from[x]) = (v, d);
+        }
+        changed
+    }
+
+    /// The lowest-energy seam, bit-identical to [`Dp::seam`] on the current energy map.
+    /// `last` is the seam removed since the previous search (`None` the first time): only the
+    /// pixels it can have changed are recomputed.
+    fn find_seam(&mut self, last: Option<&[usize]>) -> Vec<usize> {
+        let (stride, cw, h) = (self.stride, self.cw, self.h);
+        match last.filter(|_| self.dp_ready) {
+            None => {
+                self.cost.clear();
+                self.cost.resize(stride * h, 0.0);
+                self.from.clear();
+                self.from.resize(stride * h, 1);
+                self.cost[..cw].copy_from_slice(&self.e[..cw]);
+                for y in 1..h {
+                    self.dp_row(y, 0, cw - 1);
+                }
+                self.dp_ready = true;
+            }
+            Some(seam) => {
+                // Row 0's cost is its energy: copy the part `update_energy` refreshed.
+                let (lo0, hi0) = energy_span(seam, 0, h, cw);
+                self.cost[lo0..=hi0].copy_from_slice(&self.e[lo0..=hi0]);
+                let mut reach = Some((lo0, hi0));
+                for y in 1..h {
+                    // Recompute where the energy changed, where the parents of a pixel straddle
+                    // the removed seam differently from the pixel itself, and below any cost
+                    // that changed in the row above.
+                    let (elo, ehi) = energy_span(seam, y, h, cw);
+                    let (s0, s1) = (seam[y - 1].min(seam[y]), seam[y - 1].max(seam[y]));
+                    let mut a = elo.min(s0.saturating_sub(2));
+                    let mut b = ehi.max(s1 + 1);
+                    if let Some((lo, hi)) = reach {
+                        a = a.min(lo.saturating_sub(1));
+                        b = b.max(hi + 1);
+                    }
+                    reach = self.dp_row(y, a, b.min(cw - 1));
+                }
+            }
+        }
+        let last_row = &self.cost[(h - 1) * stride..(h - 1) * stride + cw];
+        let mut x = (0..cw).min_by(|a, b| last_row[*a].total_cmp(&last_row[*b])).unwrap_or(0);
+        let mut seam = vec![0usize; h];
+        for y in (0..h).rev() {
+            seam[y] = x;
+            if y > 0 {
+                x = match self.from[y * stride + x] {
+                    0 => x - 1,
+                    2 => x + 1,
+                    _ => x,
+                };
+            }
+        }
+        seam
     }
 
     /// Remove the lowest-energy seam. Returns, per row, the removed column (the original column
     /// when tracking).
     fn remove_seam(&mut self) -> Vec<usize> {
-        let (stride, cw, h, ch) = (self.stride, self.cw, self.h, self.ch);
-        let seam = self.dp.seam(stride, cw, h, &self.e);
+        let (stride, cw, ch) = (self.stride, self.cw, self.ch);
+        let last = self.last.take();
+        let seam = self.find_seam(last.as_deref());
         let removed = match &self.idx {
             Some(idx) => seam.iter().enumerate().map(|(y, &x)| idx[y * stride + x]).collect(),
             None => seam.clone(),
@@ -173,8 +267,13 @@ impl Carver {
         if let Some(idx) = &mut self.idx {
             shift_rows(idx, stride, &seam, 1, cw);
         }
+        if self.dp_ready {
+            shift_rows(&mut self.cost, stride, &seam, 1, cw);
+            shift_rows(&mut self.from, stride, &seam, 1, cw);
+        }
         self.cw -= 1;
         self.update_energy(&seam);
+        self.last = Some(seam);
         removed
     }
 
@@ -187,9 +286,7 @@ impl Carver {
         }
         let (img, prot) = (&self.img, self.prot.as_deref());
         let row = |(y, e): (usize, &mut [f32])| {
-            let near = &seam[y.saturating_sub(1)..(y + 2).min(h)];
-            let lo = near.iter().min().map_or(0, |&s| s.saturating_sub(1));
-            let hi = near.iter().max().map_or(0, |&s| s.min(cw - 1));
+            let (lo, hi) = energy_span(seam, y, h, cw);
             for x in lo..=hi {
                 let mut v = energy_at(img, stride, cw, h, ch, x, y);
                 if let Some(p) = prot {
@@ -215,6 +312,16 @@ impl Carver {
         }
         self.img.chunks(row).flat_map(|r| &r[..used]).copied().collect()
     }
+}
+
+/// The columns of row `y` whose energy changes when `seam` is removed from a `cw + 1`-wide
+/// image (`cw >= 1` after the removal): from one left of the leftmost of the seam's x in rows
+/// y-1..=y+1 to the rightmost.
+fn energy_span(seam: &[usize], y: usize, h: usize, cw: usize) -> (usize, usize) {
+    let near = seam.get(y.saturating_sub(1)..(y + 2).min(h)).unwrap_or(&[]);
+    let lo = near.iter().min().map_or(0, |&s| s.saturating_sub(1));
+    let hi = near.iter().max().map_or(0, |&s| s.min(cw - 1));
+    (lo.min(cw - 1), hi)
 }
 
 /// Remove pixel `seam[y]` (of `n` values) from each `row_len`-long row whose first `cw` pixels
@@ -331,7 +438,7 @@ fn carve_width_proxy_height(w: usize, h: usize, ch: usize, img: &[f32], protect:
     let row_len = w * ch;
     let proxy_row_len = proxy_h * row_len;
     let mut proxy = vec![0.0; proxy_row_len];
-    for (py, out_row) in proxy.chunks_exact_mut(row_len).enumerate() {
+    let average = |(py, out_row): (usize, &mut [f32])| {
         let y0 = py * step;
         let y1 = (y0 + step).min(h);
         let divisor = (y1 - y0) as f32;
@@ -341,7 +448,14 @@ fn carve_width_proxy_height(w: usize, h: usize, ch: usize, img: &[f32], protect:
                 *out += sample / divisor;
             }
         }
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use rayon::prelude::*;
+        proxy.par_chunks_exact_mut(row_len).enumerate().for_each(average);
     }
+    #[cfg(target_arch = "wasm32")]
+    proxy.chunks_exact_mut(row_len).enumerate().for_each(average);
     let proxy_protect = protect.map(|mask| {
         let mut reduced = vec![0.0; proxy_h * w];
         for (py, out_row) in reduced.chunks_exact_mut(w).enumerate() {
@@ -373,31 +487,46 @@ fn carve_width_proxy_height(w: usize, h: usize, ch: usize, img: &[f32], protect:
         columns.sort_unstable();
         removed_by_row.push(columns);
     }
-    let mut out = Vec::with_capacity(new_w * h * ch);
-    let mut columns = vec![0; seam_count];
-    for y in 0..h {
-        ctl.check()?;
+    let mut out = vec![0.0; new_w * h * ch];
+    // Rows are independent: each removes its own interpolated columns.
+    let apply = |(y, out_row): (usize, &mut [f32]), columns: &mut Vec<usize>| -> Result<(), Cancelled> {
+        if y % 64 == 0 {
+            ctl.check()?;
+        }
         let proxy_y = (y / step).min(proxy_h - 1);
         let next_proxy_y = (proxy_y + 1).min(proxy_h - 1);
         let blend = (y % step) as f32 / step as f32;
         let lower = &removed_by_row[proxy_y];
         let upper = &removed_by_row[next_proxy_y];
+        columns.clear();
         let mut min_x = 0;
-        for (i, x) in columns.iter_mut().enumerate() {
+        for i in 0..seam_count {
             let interpolated = lower[i] as f32 + (upper[i] as f32 - lower[i] as f32) * blend;
             let max_x = w - (seam_count - i);
-            *x = (interpolated.round() as usize).clamp(min_x, max_x);
+            let x = (interpolated.round() as usize).clamp(min_x, max_x);
+            columns.push(x);
             min_x = x.saturating_add(1);
         }
-        let mut next = 0;
+        // Copy the runs between removed columns.
         let row = &img[y * row_len..(y + 1) * row_len];
-        for (x, pixel) in row.chunks_exact(ch).enumerate() {
-            if columns.get(next) == Some(&x) {
-                next += 1;
-            } else {
-                out.extend_from_slice(pixel);
-            }
+        let (mut src, mut dst) = (0, 0);
+        for &x in columns.iter().chain(std::iter::once(&w)) {
+            let run = (x - src) * ch;
+            out_row[dst..dst + run].copy_from_slice(&row[src * ch..x * ch]);
+            dst += run;
+            src = x + 1;
         }
+        Ok(())
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use rayon::prelude::*;
+        out.par_chunks_exact_mut(new_w * ch).enumerate().try_for_each_init(Vec::new, |columns, row| apply(row, columns))?;
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let mut columns = Vec::new();
+        out.chunks_exact_mut(new_w * ch).enumerate().try_for_each(|row| apply(row, &mut columns))?;
     }
     ctl.progress(1.0);
     Ok(out)
@@ -796,6 +925,32 @@ mod tests {
     }
 
     /// Noise quantised to `levels` values, so the energy map is full of exact ties.
+    /// The carver keeps its seam-search map between seams and recomputes only the cone a removed
+    /// seam can reach; every seam it finds must equal a full search of the same energy map. Wide,
+    /// tall and tie-heavy images (few levels) make the cones long and the tie-breaks matter.
+    #[test]
+    fn incremental_seam_search_matches_full_search() {
+        let mut seed = 7u32;
+        let mut next = |n: usize| {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed as usize % n
+        };
+        for case in 0..60u32 {
+            let (w, h, ch) = (2 + next(160), 1 + next(90), [1, 3][next(2)]);
+            let levels = [2, 3, 17, 65_536][next(4)];
+            let img = noise(w * h * ch, levels, 5 + case);
+            let protect = (next(4) == 0).then(|| noise(w * h, 2, 301 + case));
+            let mut c = Carver::new(w, h, ch, img, protect, false);
+            while c.cw > 1 {
+                let want = Dp::default().seam(c.stride, c.cw, c.h, &c.e);
+                let got = c.remove_seam();
+                assert_eq!(got, want, "case {case}: {w}x{h}x{ch}, levels {levels}, width {}", c.cw + 1);
+            }
+        }
+    }
+
     fn noise(len: usize, levels: u32, seed: u32) -> Vec<f32> {
         let mut s = seed | 1;
         (0..len)
