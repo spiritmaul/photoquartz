@@ -1,0 +1,221 @@
+<title>PhotoQuartz Feature Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column; chart first, then the ranked table, then the inventories. */
+:root {
+  --bg: #f6f6f8; --surface: #ffffff; --fg: #17171c; --fg-2: #4d4d58; --fg-3: #7a7a86;
+  --rule: #dcdce3; --grid: #ebebf0; --accent: #5b4bc4; --quad: #f1effb;
+  --s1: #2a78d6; --s2: #eb6834;
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #141418; --surface: #1c1c22; --fg: #ededf2; --fg-2: #b9b9c6; --fg-3: #8a8a98;
+  --rule: #33333d; --grid: #26262e; --accent: #a397f0; --quad: #221f33;
+  --s1: #3987e5; --s2: #d95926; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #141418; --surface: #1c1c22; --fg: #ededf2; --fg-2: #b9b9c6; --fg-3: #8a8a98;
+  --rule: #33333d; --grid: #26262e; --accent: #a397f0; --quad: #221f33;
+  --s1: #3987e5; --s2: #d95926; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 16px/1.55 var(--body); padding: 32px 20px 64px; }
+main { max-width: 1040px; margin: 0 auto; display: grid; gap: 40px; }
+h1, h2 { font-family: var(--display); text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(30px, 5vw, 44px); line-height: 1.1; }
+h2 { font-size: 24px; }
+p { margin: 0; max-width: 68ch; color: var(--fg-2); }
+.eyebrow { font: 600 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+header { display: grid; gap: 12px; }
+section { display: grid; gap: 16px; min-width: 0; }
+.stats { display: flex; flex-wrap: wrap; gap: 28px; padding-top: 4px; }
+.stat b { display: block; font: 600 24px/1.1 var(--mono); color: var(--fg); font-variant-numeric: tabular-nums; }
+.stat span { font-size: 13px; color: var(--fg-3); }
+.chart-card { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 16px; position: relative; }
+.legend { display: flex; flex-wrap: wrap; gap: 20px; font-size: 14px; color: var(--fg-2); margin-bottom: 8px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+.legend i.sq { border-radius: 2px; }
+.chart-scroll { overflow-x: auto; }
+.chart-scroll svg { min-width: 680px; }
+svg { width: 100%; height: auto; display: block; overflow: visible; }
+svg text { font-family: var(--body); }
+.tip { position: absolute; pointer-events: none; background: var(--fg); color: var(--bg); padding: 8px 10px; border-radius: 6px; font-size: 13px; line-height: 1.4; max-width: 260px; }
+.tip b { display: block; font-size: 14px; }
+.scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; min-width: 760px; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+th { font: 600 12px/1.3 var(--mono); text-transform: uppercase; letter-spacing: .05em; color: var(--fg-3); background: var(--surface); position: sticky; top: 0; }
+td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+.pill { display: inline-block; font: 600 11px/1 var(--mono); padding: 4px 7px; border-radius: 99px; border: 1px solid var(--rule); color: var(--fg-2); white-space: nowrap; }
+.pill.crit { border-color: var(--accent); color: var(--accent); }
+.bar { height: 6px; background: var(--grid); border-radius: 3px; width: 80px; margin-top: 6px; }
+.bar > span { display: block; height: 100%; border-radius: 3px; background: var(--fg-3); }
+.inv { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.inv > div { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+.inv h3 { margin: 0 0 6px; font: 600 15px/1.3 var(--body); }
+.inv p { font-size: 14px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips span { font: 12px/1 var(--mono); padding: 5px 7px; border-radius: 5px; background: var(--grid); color: var(--fg-2); }
+.note { font-size: 13px; color: var(--fg-3); }
+a { color: var(--accent); }
+</style>
+
+<main>
+<header>
+  <div class="eyebrow">PhotoQuartz · fork of PhotoCraft 0.6.0 · 2026-10-11</div>
+  <h1>What the app does, and what to fix first</h1>
+  <p>A Rust image editor that aims for Photoshop parity. Every feature area is placed by how much
+  everyday users depend on it (importance) and how finished it is (readiness). Readiness and hours
+  come from the upstream parity docs (<code>docs/target-app-parity.md</code>, <code>ROADMAP.md</code>);
+  importance is a 1–10 judgement built from the docs' practitioner weights.</p>
+  <div class="stats">
+    <div class="stat"><b>631 / 631</b><span>Photoshop menu items wired</span></div>
+    <div class="stat"><b>67</b><span>toolbar tools</span></div>
+    <div class="stat"><b>~45%</b><span>ready for real work</span></div>
+    <div class="stat"><b>3 / 25</b><span>performance budgets met</span></div>
+    <div class="stat"><b>133 / 256</b><span>Photoshop PSD oracles pass</span></div>
+  </div>
+</header>
+
+<section>
+  <h2>Importance vs readiness</h2>
+  <p>The shaded bottom-right box is where work pays off most: things people rely on daily that are still rough.
+  Hover a dot for details. Dot size shows the estimated hours to full parity.</p>
+  <div class="chart-card" id="chartCard">
+    <div class="legend">
+      <span><i style="background:var(--s1)"></i>Feature area</span>
+      <span><i class="sq" style="background:var(--s2)"></i>Quality dimension (speed, stability, hardware…)</span>
+    </div>
+    <div class="chart-scroll"><svg id="chart" viewBox="0 0 960 560" role="img" aria-label="Scatter chart of importance versus readiness for 22 feature areas and quality dimensions"></svg></div>
+    <div class="tip" id="tip" hidden></div>
+  </div>
+</section>
+
+<section>
+  <h2>Ranked by priority</h2>
+  <p>Priority = importance × the share still missing. The top rows are the best place to start
+  testing and refining the fork.</p>
+  <div class="scroll"><table id="rank">
+    <thead><tr><th>#</th><th>Area</th><th>Importance</th><th>Ready</th><th>Hours left</th><th>What it covers</th><th>Main gaps</th></tr></thead>
+    <tbody></tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>Full inventory</h2>
+  <div class="inv" id="inv"></div>
+  <p class="note">Menus: File 52, Edit 75, Image 61, Layer 163, Type 45, Select 25, Filter 75,
+  View 74, Window 61 (generated in <code>docs/parity-checklist.md</code>). Run
+  <code>photocraft-cli commands</code> for every command id with its parameters.</p>
+</section>
+</main>
+
+<script>
+const D = [
+ {n:"Layers & masks", k:"f", imp:10, r:65, h:[150,250], c:"Layers, groups, masks, 27 blend modes, smart objects, layer styles, adjustment/fill layers", g:"Multi-layer smart objects, layer clipboard across documents, contour editor", dx:12, dy:4},
+ {n:"Stability", k:"q", imp:10, r:45, h:[150,250], c:"Never-crash rules, panic guard, crash recovery, autosave", g:"579 open issues upstream, ~244 on core paths; GPU start failures", dx:12, dy:4},
+ {n:"File I/O", k:"f", imp:9.7, r:60, h:[300,500], c:"PSD/PSB, TIFF, JPEG, PNG, WebP, HEIC, EXR, SVG, OpenRaster, Affinity import, .pcraft", g:"PSDs not yet reliably accepted by Photoshop; no AVIF/PDF open", dx:-12, dy:4, a:"end"},
+ {n:"Adjustments & filters", k:"f", imp:9, r:70, h:[120,200], c:"All Image › Adjustments, Filter menu, Filter Gallery, smart filters", g:"Smart-filter re-render matches 5 of 30; no Neural Filters", dx:-12, dy:-10, a:"end"},
+ {n:"Selections", k:"f", imp:9, r:55, h:[120,200], c:"Marquee, lasso, magic wand, quick/object selection, Select and Mask, channels", g:"Select and Mask is a generic dialog; no Refine Hair; Select Subject slow", dx:-12, dy:4, a:"end"},
+ {n:"Performance", k:"q", imp:8.4, r:25, h:[200,350], c:"GPU compositor, tiled COW rasters, rayon", g:"22 of 25 budgets missed; 150-layer GPU crash", dx:12, dy:4},
+ {n:"Retouching", k:"f", imp:8, r:50, h:[100,180], c:"Spot/Healing, Patch, Clone, Remove, Content-Aware Fill/Move, Red Eye", g:"Remove is non-generative; no Content-Aware Fill workspace", dx:12, dy:4},
+ {n:"Type", k:"f", imp:7, r:40, h:[120,200], c:"Horizontal/vertical type, paragraph & character panels, warp text", g:"No type on a path, manual kerning, RTL; freeze report on macOS", dx:12, dy:4},
+ {n:"Painting & brushes", k:"f", imp:7.3, r:55, h:[150,250], c:"Brush, Pencil, Mixer, eraser family, ABR brushes, pressure", g:"Feel: lag on big brushes, pressure jumps, smoothing", s:"Painting", dx:12, dy:-12},
+ {n:"Transform & warp", k:"f", imp:6.8, r:55, h:[100,180], c:"Free Transform, warp, perspective, puppet warp, liquify", g:"Puppet mesh is a block grid; Liquify quality", s:"Transform & warp", dx:0, dy:-16, a:"middle"},
+ {n:"Workspace & prefs", k:"f", imp:6, r:40, h:[150,250], c:"Panels, workspaces, preferences, keyboard shortcuts", g:"30 of 154 prefs do nothing; no floating panel windows", dx:-12, dy:4, a:"end"},
+ {n:"Export & Save for Web", k:"f", imp:6.2, r:50, h:[60,100], c:"Export As, Save for Web, print, artboards to PDF", g:"No JPEG Options dialog; settings not remembered", s:"Export", dx:12, dy:4},
+ {n:"Hardware (GPU, pen)", k:"q", imp:5.8, r:50, h:[80,150], c:"wgpu canvas with CPU fallback, tablet pressure on macOS/X11", g:"Wayland pen input, monitor profile only at launch", s:"Hardware", dx:-12, dy:4, a:"end"},
+ {n:"Platforms", k:"q", imp:6, r:80, h:[30,60], c:"macOS, Windows, Linux, browser (wasm)", g:"Packaging polish", dx:12, dy:4},
+ {n:"Vector shapes & paths", k:"f", imp:5, r:55, h:[80,140], c:"Pen family, path/direct selection, shapes, shape strokes", g:"On-canvas corner radius, path-point nudge", s:"Vectors & paths", dx:0, dy:-16, a:"middle"},
+ {n:"Colour management", k:"f", imp:5, r:70, h:[60,100], c:"Own ICC engine, soft proof, CMYK/Lab/Indexed/Duotone", g:"No Adobe CMYK profiles, no spot plates", dx:12, dy:4},
+ {n:"Camera Raw", k:"f", imp:5, r:45, h:[120,200], c:"DNG, CR2, NEF, ARW and more; ACR dialog; Photomerge, HDR", g:"No CR3; ACR masking and calibration missing", dx:12, dy:4},
+ {n:"Automation & scripting", k:"f", imp:4, r:45, h:[120,200], c:"Actions, batch, CLI, MCP server, JSON control channel", g:"No .atn import, no ExtendScript/UXP", s:"Automation", dx:12, dy:4},
+ {n:"Localization", k:"q", imp:3, r:55, h:[80,140], c:"20 UI languages listed, 17 translated; RTL shell", g:"Engine messages still English; Hindi, Arabic, Vietnamese untranslated", dx:12, dy:4},
+ {n:"AI / generative", k:"f", imp:3, r:10, h:[300,600], c:"Classical Select Subject/Sky, non-generative Remove", g:"No generative fill; needs an owner decision", dx:12, dy:4},
+ {n:"Plug-ins", k:"q", imp:2.6, r:15, h:[250,450], c:"Sandboxed WebAssembly plug-ins", g:"No Photoshop 8BF/UXP plug-in compatibility", dx:12, dy:-8},
+ {n:"Video & timeline", k:"f", imp:2, r:30, h:[100,200], c:"Timeline and frame menus, frames saved in .pcraft", g:"No PSD video-layer mapping", dx:12, dy:4},
+];
+D.forEach(d => { d.p = Math.round(d.imp * (100 - d.r)) / 10; });
+
+const W = 960, H = 560, m = {l:64, r:130, t:20, b:56};
+const x = v => m.l + (v - 1) / 9 * (W - m.l - m.r);
+const y = v => m.t + (1 - v / 100) * (H - m.t - m.b);
+const NS = "http://www.w3.org/2000/svg";
+const svg = document.getElementById("chart");
+const el = (t, a, txt) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); if (txt != null) e.textContent = txt; svg.appendChild(e); return e; };
+
+el("rect", {x:x(5.5), y:y(60), width:x(10)-x(5.5), height:y(0)-y(60), fill:"var(--quad)"});
+el("text", {x:x(10)-8, y:y(0)-10, "text-anchor":"end", fill:"var(--accent)", "font-size":13, "font-weight":600}, "FIX FIRST: important, under 60% ready");
+for (let v = 0; v <= 100; v += 20) {
+  el("line", {x1:m.l, x2:x(10), y1:y(v), y2:y(v), stroke:"var(--grid)", "stroke-width":1});
+  el("text", {x:m.l-10, y:y(v)+4, "text-anchor":"end", fill:"var(--fg-3)", "font-size":12}, v + "%");
+}
+for (let v = 1; v <= 10; v++) el("text", {x:x(v), y:H-m.b+20, "text-anchor":"middle", fill:"var(--fg-3)", "font-size":12}, v);
+el("line", {x1:m.l, x2:x(10), y1:y(0), y2:y(0), stroke:"var(--fg-3)", "stroke-width":1});
+el("text", {x:(m.l+x(10))/2, y:H-10, "text-anchor":"middle", fill:"var(--fg-2)", "font-size":13}, "Importance to everyday users →");
+el("text", {x:-(m.t+H-m.b)/2, y:16, transform:"rotate(-90)", "text-anchor":"middle", fill:"var(--fg-2)", "font-size":13}, "Readiness for real work →");
+
+const tip = document.getElementById("tip"), card = document.getElementById("chartCard");
+const show = (d, ev) => {
+  tip.innerHTML = `<b>${d.n}</b>Importance ${d.imp} · ${d.r}% ready · ${d.h[0]}–${d.h[1]} h<br>${d.g}`;
+  tip.hidden = false;
+  const r = card.getBoundingClientRect();
+  let left = ev.clientX - r.left + 14, top = ev.clientY - r.top + 14;
+  if (left + 270 > r.width) left = ev.clientX - r.left - 274;
+  tip.style.left = Math.max(4, left) + "px"; tip.style.top = top + "px";
+};
+D.forEach(d => {
+  const cx = x(d.imp), cy = y(d.r), rad = 5 + Math.sqrt((d.h[0] + d.h[1]) / 2) / 3.2;
+  const g = document.createElementNS(NS, "g"); svg.appendChild(g);
+  const mk = d.k === "f"
+    ? Object.assign(document.createElementNS(NS, "circle"), {})
+    : document.createElementNS(NS, "rect");
+  if (d.k === "f") { mk.setAttribute("cx", cx); mk.setAttribute("cy", cy); mk.setAttribute("r", rad); mk.setAttribute("fill", "var(--s1)"); }
+  else { mk.setAttribute("x", cx-rad*.88); mk.setAttribute("y", cy-rad*.88); mk.setAttribute("width", rad*1.76); mk.setAttribute("height", rad*1.76); mk.setAttribute("rx", 3); mk.setAttribute("fill", "var(--s2)"); }
+  mk.setAttribute("fill-opacity", .78); mk.setAttribute("stroke", "var(--surface)"); mk.setAttribute("stroke-width", 2);
+  g.appendChild(mk);
+  const lb = document.createElementNS(NS, "text");
+  const off = rad + 2;
+  lb.setAttribute("x", d.a === "middle" ? cx : cx + (d.a === "end" ? -off : off));
+  lb.setAttribute("y", d.a === "middle" ? cy + Math.sign(d.dy) * (off + 4) + (d.dy > 0 ? 8 : 0) : cy + d.dy);
+  lb.setAttribute("text-anchor", d.a || "start"); lb.setAttribute("fill", "var(--fg)"); lb.setAttribute("font-size", 13);
+  lb.textContent = d.s || d.n; g.appendChild(lb);
+  const hit = document.createElementNS(NS, "circle");
+  hit.setAttribute("cx", cx); hit.setAttribute("cy", cy); hit.setAttribute("r", Math.max(rad, 14)); hit.setAttribute("fill", "transparent");
+  g.appendChild(hit);
+  hit.addEventListener("mousemove", ev => show(d, ev));
+  hit.addEventListener("mouseleave", () => tip.hidden = true);
+});
+
+const tb = document.querySelector("#rank tbody");
+[...D].sort((a, b) => b.p - a.p).forEach((d, i) => {
+  const tier = d.imp >= 9 ? ["Critical", "crit"] : d.imp >= 7 ? ["High", ""] : d.imp >= 5 ? ["Medium", ""] : ["Low", ""];
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td class="num">${i+1}</td><td><b>${d.n}</b><br><span class="note">${d.k === "f" ? "Feature area" : "Quality dimension"}</span></td>
+   <td><span class="pill ${tier[1]}">${tier[0]} · ${d.imp}</span></td>
+   <td class="num">${d.r}%<div class="bar"><span style="width:${d.r}%"></span></div></td>
+   <td class="num">${d.h[0]}–${d.h[1]}</td><td>${d.c}</td><td>${d.g}</td>`;
+  tb.appendChild(tr);
+});
+
+const INV = [
+ ["Selection tools", "Rectangular, Elliptical, Single Row, Single Column Marquee, Lasso, Polygonal Lasso, Magnetic Lasso, Magic Wand, Quick Selection, Object Selection"],
+ ["Move, crop & measure", "Move, Artboard, Crop, Perspective Crop, Slice, Slice Select, Frame, Eyedropper, Color Sampler, Ruler, Note, Count"],
+ ["Painting", "Brush, Pencil, Mixer Brush, Color Replacement, Eraser, Background Eraser, Magic Eraser, Gradient, Paint Bucket, History Brush"],
+ ["Retouching", "Remove, Spot Healing, Healing, Patch, Content-Aware Move, Red Eye, Clone Stamp, Pattern Stamp, Blur, Sharpen, Smudge, Dodge, Burn, Sponge"],
+ ["Type", "Horizontal Type, Vertical Type, Horizontal Type Mask, Vertical Type Mask"],
+ ["Paths & shapes", "Pen, Freeform Pen, Curvature Pen, Add Anchor Point, Delete Anchor Point, Convert Point, Path Selection, Direct Selection, Rectangle, Ellipse, Triangle, Polygon, Line, Custom Shape"],
+ ["Navigation", "Hand, Rotate View, Zoom"],
+ ["File formats (read & write)", "PSD, PSB, TIFF, JPEG, PNG, GIF, BMP, WebP, OpenEXR, Radiance HDR, PBM/PGM/PPM/PFM, FITS, Targa, .pcraft"],
+ ["Read only / import", "HEIC, SVG (as editable shapes), camera raw (DNG, CR2, NEF, ARW, RW2, ORF, RAF, PEF), Affinity, OpenRaster, Paint.NET, ABR brushes"],
+ ["Ways to drive it", "Desktop app, browser build (wasm), headless CLI (convert, info, run, batch), MCP server for AI agents, JSON control channel with screenshots"],
+];
+const inv = document.getElementById("inv");
+INV.forEach(([t, list]) => {
+  const items = list.split(", ");
+  const div = document.createElement("div");
+  div.innerHTML = `<h3>${t} <span class="note">· ${items.length}</span></h3><div class="chips">${items.map(s => `<span>${s}</span>`).join("")}</div>`;
+  inv.appendChild(div);
+});
+</script>
